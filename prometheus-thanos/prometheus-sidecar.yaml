@@ -1,0 +1,340 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: prometheus
+  name: prometheus
+  namespace: thanos
+spec:
+  ports:
+    - port: 9090
+      protocol: TCP
+      targetPort: http-prometheus
+      name: http-prometheus
+  selector:
+    statefulset.kubernetes.io/pod-name: prometheus-0
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: prometheus
+  name: sidecar
+  namespace: thanos
+spec:
+  ports:
+    - port: 10901
+      protocol: TCP
+      targetPort: grpc
+      name: grpc
+  selector:
+    statefulset.kubernetes.io/pod-name: prometheus-0
+  type: NodePort
+---
+apiVersion: apps/v1beta1
+kind: StatefulSet
+metadata:
+  name: prometheus
+  namespace: thanos
+  labels:
+    app: prometheus
+spec:
+  serviceName: "prometheus"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+        # We will use this label to put all StoreAPis
+        # under the same headless service for
+        # SRV lookup: thanos-store-api.default.svc
+        thanos-store-api: "true"
+    spec:
+      securityContext:
+        runAsUser: 1000
+        fsGroup: 2000
+        runAsNonRoot: true
+      serviceAccountName: prometheus-thanos
+      containers:
+      - name: prometheus
+        image: quay.io/prometheus/prometheus:v2.9.2
+        args:
+          - --config.file=/etc/prometheus-shared/prometheus.yaml
+          - --storage.tsdb.path=/var/prometheus
+          - --web.enable-lifecycle
+          # Disable compaction.
+          - --storage.tsdb.min-block-duration=2h
+          - --storage.tsdb.max-block-duration=2h
+          - --web.enable-admin-api
+        ports:
+          - name: http-prometheus
+            containerPort: 9090
+        volumeMounts:
+          - name: config-shared
+            mountPath: /etc/prometheus-shared
+          - name: rules
+            mountPath: /etc/prometheus/rules
+          - name: prometheus
+            mountPath: /var/prometheus
+      - name: prometheus-configmap-reload
+        image: "jimmidyson/configmap-reload:v0.1"
+        args:
+          - --volume-dir=/etc/prometheus/rules
+          - --webhook-url=http://localhost:9090/-/reload
+        volumeMounts:
+          - name: rules
+            mountPath: /etc/prometheus/rules
+        resources:
+          limits:
+            cpu: 200m
+            memory: 10Mi
+          requests:
+            cpu: 200m
+            memory: 10Mi
+      - name: thanos
+        image: improbable/thanos:v0.5.0
+        args:
+          - sidecar
+          - --log.level=debug
+          - --tsdb.path=/var/prometheus
+          - --prometheus.url=http://localhost:9090
+          - --reloader.config-file=/etc/prometheus/prometheus.yaml.tmpl
+          - --reloader.config-envsubst-file=/etc/prometheus-shared/prometheus.yaml
+          # Enable block uploading.
+          - --objstore.config-file=/etc/thanos/config_bucket.yaml
+          # New flag for migrating old blocks.
+          #- --shipper.upload-compacted-once
+        env:
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+        ports:
+          - name: http-sidecar
+            containerPort: 10902
+          - name: grpc
+            containerPort: 10901
+        volumeMounts:
+          - name: prometheus
+            mountPath: /var/prometheus
+          - name: config-shared
+            mountPath: /etc/prometheus-shared
+          - name: config
+            mountPath: /etc/prometheus
+          - name: thanos-config-bucket
+            mountPath: /etc/thanos
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus
+        - name: rules
+          configMap:
+            name: prometheus-rules
+        - name: config-shared
+          emptyDir: {}
+        - name: prometheus
+          emptyDir: {}
+        - name: thanos-config-bucket
+          secret:
+            defaultMode: 420
+            secretName: thanos-config-bucket
+  updateStrategy:
+    type: RollingUpdate
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus
+  namespace: thanos
+data:
+  prometheus.yaml.tmpl: |-
+    # Inspired by https://github.com/prometheus/prometheus/blob/master/documentation/examples/prometheus-kubernetes.yml
+    global:
+      scrape_interval: 15s
+      scrape_timeout: 10s
+      external_labels:
+        cluster: k8s-prom
+        # Each Prometheus has to have unique labels.
+        replica: $(POD_NAME)
+
+    alerting:
+      # We want our alerts to be deduplicated
+      # from different replicas.
+      alert_relabel_configs:
+      - regex: replica
+        action: labeldrop
+      alertmanagers:
+      - scheme: http
+        path_prefix: /alertmanager
+        tls_config:
+          insecure_skip_verify: true
+        static_configs:
+        - targets:
+          - "monitor.infraut.fanatics.corp"
+
+    rule_files:
+    - /etc/prometheus/rules/*rules.yaml
+
+    scrape_configs:
+    - job_name: kube-state-metrics
+      static_configs:
+        - targets: ['kube-state-metrics.kube-system.svc:8080']
+      metric_relabel_configs:
+      - target_label: cluster
+        replacement: k8s-prom
+
+    - job_name: kube-apiserver
+      scheme: https
+      kubernetes_sd_configs:
+      - role: endpoints
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tls_config:
+        insecure_skip_verify: true
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+        regex: default;kubernetes;https
+        action: keep
+      metric_relabel_configs:
+      - target_label: cluster
+        replacement: k8s-prom
+
+    - job_name: cadvisor
+      scheme: https
+      kubernetes_sd_configs:
+      - role: node
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      relabel_configs:
+      - target_label: __address__
+        replacement: kubernetes.default.svc:443
+      - source_labels: [__meta_kubernetes_node_name]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+      metric_relabel_configs:
+      - source_labels: [pod_name]
+        regex: ^(.+)$
+        target_label: pod
+      - regex: id
+        action: labeldrop
+      - regex: name
+        action: labeldrop
+      - regex: pod_name
+        action: labeldrop
+      - target_label: cluster
+        replacement: k8s-prom
+
+    - job_name: kubelet
+      scheme: https
+      kubernetes_sd_configs:
+      - role: node
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      relabel_configs:
+      - target_label: __address__
+        replacement: kubernetes.default.svc:443
+      - source_labels: [__meta_kubernetes_node_name]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/${1}/proxy/metrics
+      metric_relabel_configs:
+      - source_labels: [pod_name]
+        regex: ^(.+)$
+        target_label: pod
+      - regex: id
+        action: labeldrop
+      - regex: name
+        action: labeldrop
+      - regex: pod_name
+        action: labeldrop
+      - target_label: cluster
+        replacement: k8s-prom
+
+    - job_name: kube-pods
+      scheme: https
+      kubernetes_sd_configs:
+      - role: pod
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tls_config:
+        insecure_skip_verify: true
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      relabel_configs:
+        - target_label: __address__
+          replacement: kubernetes.default.svc:443
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+          action: keep
+          regex: true
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scheme]
+          regex: ^$
+          replacement: http
+          target_label: __meta_kubernetes_pod_annotation_prometheus_io_scheme
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+          regex: (.+)
+          replacement: ${1}
+          target_label: __metrics_path__
+        - source_labels:
+          - __meta_kubernetes_namespace
+          - __meta_kubernetes_pod_annotation_prometheus_io_scheme
+          - __meta_kubernetes_pod_name
+          - __meta_kubernetes_pod_annotation_prometheus_io_port
+          - __metrics_path__
+          regex: (.+);(.+);(.+);(.+);(.+)
+          action: replace
+          target_label: __metrics_path__
+          replacement: /api/v1/namespaces/${1}/pods/${2}:${3}:${4}/proxy${5}
+        - action: labelmap
+          regex: __meta_kubernetes_pod_label_(.+)
+        - source_labels: [__meta_kubernetes_pod_node_name]
+          action: replace
+          target_label: nodename
+      metric_relabel_configs:
+        - target_label: cluster
+          replacement: k8s-prom
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus-thanos
+  namespace: thanos
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRole
+metadata:
+  name: prometheus-thanos
+rules:
+- apiGroups: ["", "extensions", "apps"]
+  resources:
+  - nodes
+  - nodes/proxy
+  - services
+  - endpoints
+  - pods
+  - pods/proxy
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources:
+  - configmaps
+  - secrets
+  verbs: ["get"]
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-thanos
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus-thanos
+subjects:
+- kind: ServiceAccount
+  name: prometheus-thanos
+  namespace: thanos

@@ -1,0 +1,9 @@
+---
+kind: Secret
+apiVersion: v1
+metadata:
+  name: thanos-config-bucket
+  namespace: thanos
+data:
+  config_bucket.yaml: dHlwZTogUzMKY29uZmlnOgogIGJ1Y2tldDogdGhhbm9zLWRlbW8KICBhY2Nlc3Nfa2V5OiBtaW5pbwogIHNlY3JldF9rZXk6IG1pbmlvMTIzCiAgZW5kcG9pbnQ6IG1pbmlvLXNlcnZpY2UuZGVmYXVsdC5zdmM6OTAwMAogIGluc2VjdXJlOiB0cnVlCiAgaHR0cF9jb25maWc6CiAgICBpZGxlX2Nvbm5fdGltZW91dDogMHMKICAgIHJlc3BvbnNlX2hlYWRlcl90aW1lb3V0OiAwcwogICAgaW5zZWN1cmVfc2tpcF92ZXJpZnk6IHRydWUK
+type: Opaque

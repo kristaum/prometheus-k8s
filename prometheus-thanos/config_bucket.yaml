@@ -1,0 +1,11 @@
+type: S3
+config:
+  bucket: thanos-demo
+  access_key: minio
+  secret_key: minio123
+  endpoint: minio-service.default.svc:9000
+  insecure: true
+  http_config:
+    idle_conn_timeout: 0s
+    response_header_timeout: 0s
+    insecure_skip_verify: true

@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: kube-system
+  labels:
+    grafanak8sapp: "true"
+    k8s-app: node-exporter
+    kubernetes.io/cluster-service: "true"
+    addonmanager.kubernetes.io/mode: Reconcile
+    version: v0.18.1
+spec:
+  selector:
+    matchLabels:
+      k8s-app: node-exporter
+      grafanak8sapp: "true"
+      version: v0.18.1
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        # These annotations are required based on the way we currently
+        # Are getting metrics on Prometheus.
+        prometheus.io/port: "9100"
+        prometheus.io/scrape: "true"
+      labels:
+        k8s-app: node-exporter
+        grafanak8sapp: "true"
+        version: v0.18.1
+    spec:
+      priorityClassName: system-node-critical
+      containers:
+        - name: prometheus-node-exporter
+          # Please note that we are using a version post 0.16, the
+          # default grafana kubernetes plugin dashboards won't work without small
+          # tweaks
+          image: "prom/node-exporter:v0.18.1"
+          imagePullPolicy: "IfNotPresent"
+          args:
+            - --path.procfs=/host/proc
+            - --path.sysfs=/host/sys
+          ports:
+            - name: metrics
+              containerPort: 9100
+              hostPort: 9100
+          volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly:  true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+          resources:
+            limits:
+              memory: 500Mi
+              cpu: "1"
+            requests:
+              cpu: 25m
+              memory: 50Mi
+      hostNetwork: true
+      hostPID: true
+      volumes:
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: sys
+          hostPath:
+            path: /sys
+      tolerations:
+        - operator: "Exists"
+          effect: "NoSchedule"
+        - operator: "Exists"
+          effect: "NoExecute"

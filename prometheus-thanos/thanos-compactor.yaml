@@ -1,0 +1,53 @@
+apiVersion: apps/v1beta1
+kind: StatefulSet
+metadata:
+  name: thanos-compactor
+  namespace: thanos
+  labels:
+    app: thanos-compactor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: thanos-compactor
+  serviceName: thanos-compactor
+  template:
+    metadata:
+      labels:
+        app: thanos-compactor
+    spec:
+      containers:
+        - name: thanos
+          image: improbable/thanos:v0.5.0
+          args:
+            - compact
+            - --log.level=debug
+            - --data-dir=/data
+            - --objstore.config-file=/etc/thanos/config_bucket.yaml
+            - --wait
+          ports:
+            - name: http
+              containerPort: 10902
+          livenessProbe:
+            httpGet:
+              port: 10902
+              path: /-/healthy
+          readinessProbe:
+            httpGet:
+              port: 10902
+              path: /-/ready
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1Gi
+            requests:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+          - name: thanos-config-bucket
+            mountPath: /etc/thanos
+      volumes:
+      - name: thanos-config-bucket
+        secret:
+          defaultMode: 420
+          secretName: thanos-config-bucket

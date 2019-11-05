@@ -1,0 +1,57 @@
+apiVersion: apps/v1beta1
+kind: StatefulSet
+metadata:
+  name: thanos-store-gateway
+  namespace: thanos
+  labels:
+    app: thanos-store-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: thanos-store-gateway
+  serviceName: thanos-store-gateway
+  template:
+    metadata:
+      labels:
+        app: thanos-store-gateway
+        thanos-store-api: "true"
+    spec:
+      containers:
+      - name: thanos
+        image: improbable/thanos:v0.5.0
+        args:
+        - store
+        - --log.level=debug
+        - --data-dir=/data
+        - --index-cache-size=500MB
+        - --chunk-pool-size=500MB
+        - --objstore.config-file=/etc/thanos/config_bucket.yaml
+        ports:
+        - name: http
+          containerPort: 10902
+        - name: grpc
+          containerPort: 10901
+        volumeMounts:
+        - name: thanos-config-bucket
+          mountPath: /etc/thanos
+      volumes:
+      - name: thanos-config-bucket
+        secret:
+          defaultMode: 420
+          secretName: thanos-config-bucket
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: thanos-store-gateway
+  namespace: thanos
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: grpc
+      port: 10901
+      targetPort: grpc
+  selector:
+    thanos-store-api: "true"
