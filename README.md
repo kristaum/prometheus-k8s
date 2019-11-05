@@ -4,7 +4,7 @@ The yamls presented here are intend to help on implement prometheus on a K8S clu
 It's considered that you know how a k8s cluster works with all it's components and how to deploy applications on it.
 
 
-##### Metrics Providers
+### Metrics Providers
 
 Inside [ metrics-providers ](metrics-providers) you will have the yamls for node-exporter and kube-state-metrics, both helps prometheus on collecting metrics from k8s resources and nodes.
 Below we have more details including kubelet exposed metrics, note on the versions for the exposed metrics the naming can change between versions.
@@ -16,7 +16,7 @@ Below we have more details including kubelet exposed metrics, note on the versio
 | kubelet | [ k8s docs ](https://kubernetes.io/docs/tasks/debug-application-cluster/resource-usage-monitoring/) | [ docs/kubelet-metrics-v0.3.4.md ](docs/kubelet-metrics-v0.3.4.md) |
 
 
-##### Prometheus
+### Prometheus
 
 Inside [ prometheus ](prometheus) we have alertmanager which is used to fire the alerts created by prometheus, those alerts can be to systems like email, slack and pagerduty.
 Grafana will display us the metrics in form of dashboards, on [ grafana ](grafana) folder we have two sample of dashboards that can be implemented to view the resources usage of your cluster.
@@ -38,7 +38,7 @@ Grafana will display us the metrics in form of dashboards, on [ grafana ](grafan
 This solution is not storing the metrics anywhere, which means if you pod dies you will loose all metrics already collected. Here You could simply implement it with a PVC or use thanos as below.
 
 
-##### Prometheus with Thanos
+### Prometheus with Thanos
 
 Thanos was created to help store the metrics collected by prometheus, when we use it we no longer define prometheus as datasource on grafana, we define thanos-querier as datasource.
 Read [ thanos documentation ](https://thanos.io/getting-started.md/) for further understanding of this solution.
@@ -50,5 +50,5 @@ So basically if you want to change where to store the metrics case you are on th
 
 
 
-##### Considerations
+### Considerations
 Hopes this gives you a head start on monitoring your k8s cluster, implementing this section by section helped me understand how all this works together.
