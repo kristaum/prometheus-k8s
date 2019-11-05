@@ -21,7 +21,7 @@ Below we have more details including kubelet exposed metrics, note on the versio
 Inside [ prometheus ](prometheus) we have alertmanager which is used to fire the alerts created by prometheus, those alerts can be to systems like email, slack and pagerduty.
 Grafana will display us the metrics in form of dashboards, on [ grafana ](grafana) folder we have two sample of dashboards that can be implemented to view the resources usage of your cluster.
 
-[ prometheus/prometheus-rules.yaml ](prometheus/prometheus-rules.yaml) was inspired on [ prometheus operator project ](https://github.com/coreos/prometheus-operator/blob/master/contrib/kube-prometheus/manifests/prometheus-rules.yaml) and modified accordingly to my needs. On this file we create the alerts that will be fired using alertmanager and help us identify problems before something can break or is already breaking and we are not aware. It uses promQL which could be a little difficult to understand at first.
+[ prometheus/prometheus-rules.yaml ](prometheus/prometheus-rules.yaml) was inspired on [ prometheus operator project ](https://github.com/coreos/kube-prometheus) and modified accordingly to my needs. On this file we create the alerts that will be fired using alertmanager and help us identify problems before something can break or is already breaking and we are not aware. It uses promQL which could be a little difficult to understand at first.
 
 [ prometheus/prometheus-conf.yaml ](prometheus/prometheus-conf.yaml) is the configuration file of prometheus, lets say it's heart, where all ties together.
   - It's defined what alertmanager instance to send the alerts to
